@@ -1,0 +1,13 @@
+# Local automation scripts
+fetch_arxiv.scpt
+
+# User-specific data file
+mail_text.txt
+
+# Python virtual environment
+.venv/
+venv/
+
+# # Python cache files
+# __pycache__/
+# *.pyc
