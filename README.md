@@ -223,3 +223,23 @@ Feedback and contributions are welcome. Please feel free to open an issue or sub
 ## Disclaimer
 
 This tool is provided in the hope of helping with the search for arXiv papers, but with no guarantee of success. The author(s) of this repository are not liable for any missed papers, or scooped research. Usage of this repository is at your own risk. 
+
+## 📚 Cite this Repository
+If you use ArXiv Paper Scraper in your research or projects, please cite it as follows:
+
+```cite
+@software{dassen2025arxivscraper,
+  author       = {Maxime Dassen},
+  title        = {ArXiv Paper Scraper: A Unified CLI Tool for Searching and Filtering Academic Papers from arXiv},
+  year         = {2025},
+  url          = {https://github.com/Maximeswd/ArXiv-Scraper},
+  version      = {1.0.0},
+  license      = {MIT}
+}
+```
+
+Or as follows:
+
+```cite
+Dassen, M. (2025). ArXiv Paper Scraper: A Unified CLI Tool for Searching and Filtering Academic Papers from arXiv. GitHub. Available at: https://github.com/Maximeswd/ArXiv-Scraper
+```
