@@ -10,5 +10,5 @@ mail_text.txt
 venv/
 
 # # Python cache files
-# __pycache__/
-# *.pyc
+__pycache__/
+*.pyc

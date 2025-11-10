@@ -15,6 +15,7 @@ parser.add_argument('-a', '--author', nargs='+', help='A list of authors to sear
 args = parser.parse_args()
 
 with console.status('Reading papers...', spinner='monkey'):
+    # SETUP
     # If you provides any command-line argument (-k or -a), we will ONLY use that
     # The .txt files will be ignored.
     if args.keyword or args.author:
@@ -38,6 +39,7 @@ with console.status('Reading papers...', spinner='monkey'):
     with open('mail_text.txt', 'r') as file:
         lines = file.readlines()
 
+    # PROCESS
     results = {
         'title': [],
         'authors': [],
@@ -59,9 +61,10 @@ with console.status('Reading papers...', spinner='monkey'):
             results['abstract'].append(get_until(i, lines, '-----------------------'))
         elif line.startswith("%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%--%%"):
             break
-
+    
     df = pd.DataFrame(results)
 
+    # OUTPUT
     table = Table(box=box.HORIZONTALS, show_lines=False, show_header=False)
     keyword_style = Style(color="red", bold=True)
     table.add_column(max_width=15, justify='center', style=keyword_style)

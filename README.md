@@ -1,18 +1,16 @@
 # Yet Another arXiv Filter (Enhanced for macOS)
 
-This is an enhanced version of the original "Yet Another arXiv Filter," a hacky but effective keyword/author search through daily arXiv emails.
+This is an adjusted version of the original "Yet Another arXiv Filter", a hacky but effective keyword/author search through daily arXiv emails.
 
 > **Citation:** This project is a modification of the original work by **ege-erdogan**. The original repository can be found at: [https://github.com/ege-erdogan/yet-another-arxiv-filter](https://github.com/ege-erdogan/yet-another-arxiv-filter).
 
-This version adds some enhancements for a streamlined and automated workflow on macOS:
+This version adds some adjustments for a streamlined and automated workflow on macOS:
 1.  **Full Automation:** An AppleScript automatically fetches the latest daily arXiv email from your Apple Mail app, removing the need for manual copy-pasting.
 2.  **Interactive Command-Line Arguments:** The Python script has been upgraded with `argparse` to accept keywords and authors directly from the terminal for on-the-fly searches.
 3.  **Powerful Terminal Command:** A Zsh function (`arxiv`) replaces the simple alias, allowing for a single, powerful command that handles both email fetching and argument-based filtering.
 
-
-
-Below 
-![Image](img/result.png)
+_Example of the terminal output after running the arXiv filter._
+![Image](img/llm.png)
 
 ## Table of Contents
 
@@ -73,6 +71,9 @@ source .venv/bin/activate
 # Install the required packages from requirements.txt
 pip install -r requirements.txt
 ```
+
+> ⚡ **Pro Tip: Faster Installation with `uv`**
+> For a significantly faster installation, you can use `uv`, a next-generation Python package installer. First, install it with `pip install uv`, then you can use `uv pip install -r requirements.txt` as a lightning-fast, drop-in replacement for the `pip` command. You can use it for any other packages you might add later as well.
 
 ### Step 4: Create the Automation Script (AppleScript)
 
@@ -160,7 +161,6 @@ arxiv -k "RAG" "multimodal"
 ```
 
 **Search by Author(s):**
-
 ```bash
 # Search for papers by "Yann LeCun"
 arxiv -a "Yann LeCun"
@@ -171,7 +171,7 @@ arxiv -a "Yann LeCun" "Geoffrey Hinton"
 
 **Search by Both Keyword and Author:**
 ```bash
-arxiv -k "attention" -a "Ashish Vaswani"
+arxiv -k "transformer" -a "Ashish Vaswani"
 ```
 
 ### Mode 2: Default Search (Using Local Files)
