@@ -8,25 +8,29 @@ THEMES = {
     "vibrant": {
         "title": "purple",
         "author": "magenta",
+        "subjects": "yellow",
         "link": "bright_blue",
         "abstract": "green",
     },
     "solarized": {
         "title": "yellow",
         "author": "cyan",
+        "subjects": "green",
         "link": "blue",
         "abstract": "white",
     },
     "classic": {
         "title": "bright_white",
         "author": "green",
+        "subjects": "yellow",
         "link": "bright_blue",
         "abstract": "white",
     },
     "nordic": {
-        "title": "bright_cyan",
-        "author": "magenta",
-        "link": "blue",
+        "title": "cyan1",
+        "author": "magenta3",
+        "subjects": "light_slate_grey",
+        "link": "slate_blue1",
         "abstract": "bright_white",
     },
 }
@@ -60,6 +64,7 @@ def add_to_table(df, table, keywords_to_highlight):
 
     title_style = Style(color=colors["title"], bold=True)
     author_style = Style(color=colors["author"])
+    subject_style = Style(color=colors["subjects"], italic=True)
     link_style = Style(color=colors["link"])
     abstract_style = Style(color=colors["abstract"])
     highlight_style = "bold underline"
@@ -67,15 +72,13 @@ def add_to_table(df, table, keywords_to_highlight):
     for _, row in df.iterrows():
         title_text = Text(row.get("title", ""))
         authors_text = Text(row.get("authors", ""))
+        subjects_text = Text(row.get("subjects", "No subjects found"))
         abstract_text = Text(clean_abstract(row.get("abstract", "")))
 
         if keywords_to_highlight:
             for keyword in keywords_to_highlight:
                 if isinstance(keyword, str):
-                    # --- THIS IS THE CORRECTED LINE ---
-                    # Added \b for word boundaries to ensure whole word matching.
                     highlight_regex = f"(?i)\\b({re.escape(keyword)})\\b"
-                    # --- END OF CORRECTION ---
 
                     title_text.highlight_regex(highlight_regex, style=highlight_style)
                     abstract_text.highlight_regex(
@@ -86,6 +89,7 @@ def add_to_table(df, table, keywords_to_highlight):
         table.add_row("", title_text, style=title_style)
         table.add_row("", authors_text, style=author_style)
         table.add_row("", row.get("url", ""), style=link_style)
+        table.add_row("", subjects_text, style=subject_style)
         table.add_row("", abstract_text, style=abstract_style)
         table.add_row("")
     return table

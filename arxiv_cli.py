@@ -15,6 +15,7 @@ from utils import add_to_table
 # Setup
 console = Console()
 
+
 def config():
     """
     Sets up and parses command-line arguments.
@@ -166,6 +167,7 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
                     paper_data = {
                         "title": paper_title,
                         "authors": paper_authors,
+                        "subjects": paper_subjects_str,
                         "abstract": paper_abstract,
                         "url": f"http://arxiv.org/abs/{arxiv_id}",
                     }
@@ -268,7 +270,13 @@ def search_general_api(
             response = requests.get(full_query)
             response.raise_for_status()
             feed = feedparser.parse(response.content)
-            results = {"title": [], "authors": [], "abstract": [], "url": []}
+            results = {
+                "title": [],
+                "authors": [],
+                "subjects": [],
+                "abstract": [],
+                "url": [],
+            }
             for entry in feed.entries:
                 results["title"].append(entry.title.replace("\n", " ").strip())
                 results["authors"].append(
@@ -276,6 +284,8 @@ def search_general_api(
                 )
                 results["abstract"].append(entry.summary.replace("\n", " ").strip())
                 results["url"].append(entry.link)
+                subjects = ", ".join(tag.term for tag in entry.tags)
+                results["subjects"].append(subjects)
             return pd.DataFrame(results)
         except requests.exceptions.RequestException as e:
             console.print(f"[bold red]Error during API query: {e}[/bold red]")
@@ -292,7 +302,7 @@ def main():
 
     if not args.category:
         console.print(
-            f"[italic blue]No category specified. Using baseline: {', '.join(BASELINE_CATEGORIES)}[/italic blue]"
+            f"[italic blue3]No category specified. Using baseline: {', '.join(BASELINE_CATEGORIES)}[/italic blue3]"
         )
         args.category = BASELINE_CATEGORIES
 
@@ -306,7 +316,7 @@ def main():
             max_papers=max_papers_to_fetch,
         )
     elif args.general:
-        console.print("[bold blue]Mode: General API Search[/bold blue]")
+        console.print("[bold green]Mode: General API Search[/bold green]")
         max_results = 2000 if args.all else args.max
         df = search_general_api(
             categories=args.category,
@@ -335,7 +345,7 @@ def main():
     if keywords_to_highlight:
         terms_to_display = (args.keyword or []) + (args.author or [])
         table.add_row(
-            Text(f"Highlighting for:\n{', '.join(terms_to_display)}", style="yellow")
+            Text(f"Highlighting for:\n{', '.join(terms_to_display)}", style="yellow1")
         )
         table.add_section()
 
