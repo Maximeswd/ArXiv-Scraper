@@ -8,7 +8,7 @@ _A side-by-side comparison of the General Search (`-g`) and Daily Digest (`-d`) 
 
 | General Search (`-g`) Example                | Daily Digest (`-d`) Example                    |
 | :-------------------------------------------: | :---------------------------------------------: |
-| <img src="img/g_example.png" width="400"> | <img src="img/d_example.png" width="400"> |
+| <img src="img/g_example.png" width="400" height=300> | <img src="img/d_example.png" width="400" height=300> |
 
 ## Table of Contents
 
