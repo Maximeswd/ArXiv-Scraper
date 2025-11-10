@@ -1,5 +1,6 @@
 # Local automation scripts
 fetch_arxiv.scpt
+arxiv_filter_old.py
 
 # User-specific data file
 mail_text.txt
