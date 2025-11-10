@@ -1,5 +1,3 @@
-# Updated arxiv_filter.py (Improved Logic)
-
 import pandas as pd
 from rich.console import Console
 from rich.table import Table
@@ -17,7 +15,7 @@ parser.add_argument('-a', '--author', nargs='+', help='A list of authors to sear
 args = parser.parse_args()
 
 with console.status('Reading papers...', spinner='monkey'):
-    # If the user provides any command-line argument (-k or -a), we will ONLY use what they provide.
+    # If you provides any command-line argument (-k or -a), we will ONLY use that
     # The .txt files will be ignored.
     if args.keyword or args.author:
         console.print("[yellow]Command-line arguments detected. Ignoring .txt files.[/yellow]")
