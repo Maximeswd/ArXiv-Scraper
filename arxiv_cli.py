@@ -175,7 +175,7 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
                 return pd.DataFrame()
 
             if filter_keywords:
-                title_weight = 3.0
+                title_weight = 2.0
                 for paper in found_papers:
                     keyword_pattern = (
                         r"\b("

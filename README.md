@@ -4,8 +4,6 @@ This project provides an easy-to-use command-line tool to search, fetch, and fil
 
 The primary tool, `arxiv`, operates in two distinct modes: a **general search** mode for querying the entire historical arXiv database, and a **daily digest** mode for scraping and filtering the very latest papers.
 
-It features intelligent, relevance-based sorting and smart highlighting to make staying on top of new research effortless.
-
 _A side-by-side comparison of the General Search (`-g`) and Daily Digest (`-d`) modes._
 
 | General Search (`-g`) Example                | Daily Digest (`-d`) Example                    |
@@ -38,7 +36,7 @@ This single setup process will configure the `arxiv` command and all its feature
 
 ```bash
 # Clone this repository
-git clone https://github.com/your-username/ArXiv-Reader.git
+git clone https://github.com/Maximeswd/ArXiv-Scraper.git
 cd ArXiv-Reader
 
 # Create and activate a Python virtual environment
@@ -92,7 +90,7 @@ The `arxiv` command is your single entry point. The first argument you provide *
 > **A Note on Highlighting:** The tool automatically highlights individual words from your `-k` (keyword) and `-a` (author) queries. It splits phrases (like `"Attention is all you need"`) and only highlights **whole word matches** in the output for clarity.
 
 > **A Note on Relevance Sorting:** To ensure the most important papers appear first, results are sorted by relevance when keywords are used.
-> - **Daily Mode (`-d`):** Results are sorted by a custom relevance score. This score is calculated from the normalized frequency (keyword count / total words) of your keywords, with the score from the **title given 3x more weight** than matches in the abstract.
+> - **Daily Mode (`-d`):** Results are sorted by a custom relevance score. This score is calculated from the normalized frequency (keyword count / total words) of your keywords, with the score from the **title given 2x more weight** than matches in the abstract.
 > - **General Mode (`-g`):** Results are sorted using the arXiv API's powerful, built-in relevance engine, which is highly optimized for academic papers.
 
 ---
@@ -128,7 +126,7 @@ arxiv -g -a "Yann LeCun" --start-date 2025-01-01 --end-date 2025-12-31
 This mode scrapes the live `cs/new` webpage to give you an up-to-the-minute view of **today's latest computer science papers**. It is designed for quickly filtering the daily firehose of new research.
 
 #### **Key Features:**
--   **Real-Time:** Gets the absolute newest papers as they are listed.
+-   **Real-Time:** Gets the newest papers as they are listed.
 -   **Relevance Sorting:** Automatically ranks papers by keyword density, showing the most relevant results first.
 -   **Smart Filtering:** Filters by keyword (in title/abstract), author, and specific CS categories.
 -   **Baseline Categories:** If you don't specify `-c`, it automatically uses a baseline: **`cs.CV`, `cs.LG`, `cs.CL`, `cs.AI`, and `cs.IR`**.
@@ -209,7 +207,7 @@ This AppleScript tells your Mail app to find the latest arXiv email and save its
 ## Key Files
 
 -   **`arxiv_cli.py`**: The core, unified script that powers the `arxiv` command and both its `-g` and `-d` modes.
--   **`util.py`**: A helper script for styling and highlighting the terminal output.
+-   **`utils.py`**: A helper script for styling and highlighting the terminal output. Here you can choose various themes or make a custom one.
 -   **`requirements.txt`**: Lists all necessary Python packages.
 -   **`arxiv_filter.py`**: (For email workflow) A script for parsing local text files.
 -   **`fetch_arxiv.scpt`**: (For email workflow) The AppleScript to extract email content.
@@ -224,4 +222,4 @@ Feedback and contributions are welcome. Please feel free to open an issue or sub
 
 ## Disclaimer
 
-This tool is provided in the hope of taming the arXiv firehose, but with no guarantee of success. The author is not liable for any missed papers, scooped research, or the resulting academic existential dread. Use at your own risk. 
+This tool is provided in the hope of helping with the search for arXiv papers, but with no guarantee of success. The author(s) of this repository are not liable for any missed papers, or scooped research. Usage of this repository is at your own risk. 
