@@ -165,9 +165,29 @@ arxiv -d -c cs.* -a "Geoffrey Hinton" --all
 
 > **Note:** Use the `--max` flag to limit the number of results, or use the `--all` flag to retrieve all matching papers from the daily page.
 
-## Optional Workflow: Local Email Parsing (macOS)
+### Mode 3 (Optional): Email Parser (`-m`) 
 
-This secondary workflow is for users who prefer to work offline by parsing the daily arXiv email digest that has been downloaded to their local Apple Mail app.
+This workflow is for users who prefer to work offline by parsing the daily arXiv email digest that has been downloaded to their local Apple Mail app. You can now use the `-m` mode to parse your emails. You can optionally use `--fetch N` to tell the tool to go get the `N` most recent emails before parsing.
+
+#### **Examples:**
+
+**1. Fetch the single most recent email and search it (Default):**
+```bash
+# Fetches the latest email, then searches for "transformer"
+arxiv -m --fetch -k "transformer"
+```
+
+**2. Fetch the last 3 emails:**
+```bash
+# Fetches the 3 most recent emails and looks for "Hinton"
+arxiv -m --fetch 3 -a "Hinton"
+```
+
+**3. Parse the existing file without fetching:**
+If you have already fetched the emails and just want to re-run a search on the local file:
+```bash
+arxiv -m -k "LLM"
+```
 
 ### Step 1: Subscribe to arXiv Daily Emails
 
@@ -175,53 +195,91 @@ Ensure you are subscribed to receive the daily arXiv emails. You can find instru
 
 ### Step 2: Create the Email Fetch Script (`fetch_arxiv.scpt`)
 
-This AppleScript tells your Mail app to find the latest arXiv email and save its content to a text file.
+This AppleScript tells your Mail app to find the latest arXiv email and save its content to a text file (`mail_text.txt`).
 
 1.  Open the **Script Editor** app on your Mac.
 2.  Paste the following code, **editing the `outputPath`** to point to a `mail_text.txt` file inside your project folder.
 
     ```applescript
-    set outputPath to "path/to/your/ArXiv-Reader/mail_text.txt"
-    set targetAccountName to "<mail account description name>"
-    set targetMailboxName to "<inbox name> (e.g., INBOX)"
+    use AppleScript version "2.4"
+    use scripting additions
 
-    set emailContent to ""
-
-    tell application "Mail"
-      try
-        if not (account targetAccountName exists) then
-          display dialog "Error: The account with Description '" & targetAccountName & "' was not found." with icon stop
-          return
+    on run argv
+        set fetchCount to 1
+        if (count of argv) > 0 then
+            try
+                set fetchCount to (item 1 of argv) as integer
+            end try
         end if
-        
-        set theMessages to (messages of mailbox targetMailboxName of account targetAccountName whose sender contains "no-reply@arXiv.org" and subject contains "cs daily")
-        
-        if (count of theMessages) > 0 then
-          set emailContent to content of the last item of theMessages
+
+        set outputPath to "/path/to/your/ArXiv-Reader/mail_text.txt"
+        set targetAccountName to "<Your Account Description>" -- e.g. "Gmail"
+        set targetMailboxName to "INBOX"
+
+        set fullContent to ""
+        set delimiter to "
+    %%%---%%%---%%%---%%%---%%%---%%%---%%%---%%%---%%%---%%%---%%%---%%%---%%%---
+    "
+
+        tell application "Mail"
+            try
+                -- 1. Check for new mail
+                check for new mail for account targetAccountName
+                
+                if not (account targetAccountName exists) then
+                    return "Error: Account not found."
+                end if
+                
+                -- 2. Fetch all matching messages
+                set foundMessages to (messages of mailbox targetMailboxName of account targetAccountName whose sender contains "no-reply@arXiv.org" and subject contains "cs daily")
+                set totalFound to count of foundMessages
+                
+                if totalFound = 0 then
+                    return "No matching emails found."
+                end if
+                
+                -- 3. Sort messages by date (Newest First)
+                repeat with i from 1 to totalFound - 1
+                    repeat with j from 1 to totalFound - i
+                        if (date received of item j of foundMessages) < (date received of item (j + 1) of foundMessages) then
+                            set temp to item j of foundMessages
+                            set item j of foundMessages to item (j + 1) of foundMessages
+                            set item (j + 1) of foundMessages to temp
+                        end if
+                    end repeat
+                end repeat
+                
+                -- 4. Determine how many to read
+                set loopLimit to fetchCount
+                if loopLimit > totalFound then
+                    set loopLimit to totalFound
+                end if
+                
+                -- 5. Concatenate content
+                repeat with k from 1 to loopLimit
+                    set thisMsg to item k of foundMessages
+                    set fullContent to fullContent & (content of thisMsg) & delimiter
+                end repeat
+                
+            on error errMsg
+                return "Mail App Error: " & errMsg
+            end try
+        end tell
+
+        if fullContent is "" then
+            return "No content extracted."
         end if
-        
-      on error errMsg
-        display dialog "An error occurred inside the Mail app: " & errMsg with icon stop
-        return
-      end try
-    end tell
 
-    if emailContent is "" then
-      display dialog "No arXiv email was found that matched the filter criteria." with icon note
-      return
-    end if
-
-    try
-      set theFile to open for access (POSIX file outputPath) with write permission
-      set eof of theFile to 0
-      
-      
-      write emailContent to theFile as «class utf8»
-      
-      close access theFile
-    on error errMsg
-      display dialog "A file writing error occurred: " & errMsg with icon stop
-    end try
+        try
+            set theFile to open for access (POSIX file outputPath) with write permission
+            set eof of theFile to 0
+            write fullContent to theFile as «class utf8»
+            close access theFile
+            return "Success: Fetched " & loopLimit & " emails."
+        on error errMsg
+            return "File Write Error: " & errMsg
+        end try
+    end run
     ```
 3.  Save the script inside your project folder as `fetch_arxiv.scpt`.
 
@@ -269,12 +327,14 @@ This AppleScript tells your Mail app to find the latest arXiv email and save its
     arxiv -m -a "Geoffrey Hinton"
     ```
 
+
 ## Key Files
 
--   **`arxiv_cli.py`**: The core, unified script that powers the `arxiv` command and both its `-g`, `-d`, and `-m` modes.
--   **`utils.py`**: A helper script for styling and highlighting the terminal output. Here you can choose various themes or make a custom one.
+-   **`arxiv_cli.py`**: The core, unified script that powers the `arxiv` command and all its modes.
+-   **`utils.py`**: A helper script for styling and highlighting the terminal output.
 -   **`requirements.txt`**: Lists all necessary Python packages.
 -   **`fetch_arxiv.scpt`**: (For email workflow) The AppleScript to extract email content.
+-   **`mail_text.txt`**: The intermediate file where email content is stored (auto-generated).
 
 ## Acknowledgements
 
@@ -286,7 +346,7 @@ Feedback and contributions are welcome. Please feel free to open an issue or sub
 
 ## Disclaimer
 
-This tool is provided in the hope of helping with the search for arXiv papers, but with no guarantee of success. The author(s) of this repository are not liable for any missed papers, or scooped research. Usage of this repository is at your own risk. 
+This tool relies on pattern matching and external data sources which may change or fail without notice. While it aims to assist in filtering the literature, it does not guarantee a perfect signal or an exhaustive search. The maintainers accept no liability for any overlooked citations, scooped ideas, or incomplete literature reviews resulting from the use of this tool. Please verify all critical searches directly on the official arXiv website.
 
 ## 📚 Cite this Repository
 If you use ArXiv Paper Scraper in your research or projects, please cite it as follows:

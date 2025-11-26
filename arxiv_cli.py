@@ -3,6 +3,7 @@ import feedparser
 import argparse
 import pandas as pd
 import re
+import subprocess
 from bs4 import BeautifulSoup
 from datetime import datetime
 from rich.console import Console
@@ -15,6 +16,7 @@ from utils import add_to_table
 # Setup
 console = Console()
 MAIL_FILE = "mail_text.txt"
+SCRIPT_FILE = "fetch_arxiv.scpt"
 
 def config():
     """Sets up and parses command-line arguments for all modes."""
@@ -41,7 +43,13 @@ def config():
         action="store_true",
         help="Mode 3: Parse and filter the latest arXiv email (macOS).",
     )
-
+    parser.add_argument(
+        "--fetch",
+        type=int,
+        nargs="?",
+        const=1, 
+        help="Used with -m: Fetch the N most recent emails via AppleScript before parsing (Default: 1).",
+    )
     parser.add_argument(
         "-k",
         "--keyword",
@@ -274,8 +282,22 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
 
 
 # MODE 3: Email Parser
-def parse_email_papers(keywords=None, authors=None, max_papers=10, all_papers=False):
+def parse_email_papers(keywords=None, authors=None, max_papers=10, all_papers=False, fetch_count=None):
     """Parses the mail_text.txt file, omitting subjects."""
+    if fetch_count is not None:
+        console.print(f"[cyan]Fetching the last [bold]{fetch_count}[/bold] emails via Mail app...[/cyan]")
+        try:
+            result = subprocess.run(
+                ["osascript", SCRIPT_FILE, str(fetch_count)], 
+                capture_output=True, text=True
+            )
+            if result.returncode == 0 and "Success" in result.stdout:
+                console.print(f"[green]{result.stdout.strip()}[/green]")
+            else:
+                console.print(f"[bold red]AppleScript Error:[/bold red] {result.stderr or result.stdout}")
+        except Exception as e:
+            console.print(f"[bold red]Failed to run AppleScript: {e}[/bold red]")
+    
     console.print(
         f"[cyan]Parsing and filtering papers from [bold]{MAIL_FILE}[/bold]...[/cyan]"
     )
@@ -394,6 +416,7 @@ def main():
             authors=args.author,
             max_papers=args.max,
             all_papers=args.all,
+            fetch_count=args.fetch 
         )
         show_subjects_in_table = False
 
