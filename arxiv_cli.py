@@ -155,15 +155,26 @@ def search_general_api(
             query_parts.append(f'au:"{au}"')
 
     if start_date or end_date:
-        date_format = "%m-%d-%Y" if us_dates else "%d-%m-%Y"
+        # Always accept the unambiguous ISO format (YYYY-MM-DD); fall back to the
+        # selected day/month convention for the shorter forms.
+        convention = "%m-%d-%Y" if us_dates else "%d-%m-%Y"
+
+        def _parse_date(value):
+            for fmt in ("%Y-%m-%d", convention):
+                try:
+                    return datetime.strptime(value, fmt)
+                except ValueError:
+                    continue
+            raise ValueError(value)
+
         try:
             start = (
-                datetime.strptime(start_date, date_format).strftime("%Y%m%d%H%M%S")
+                _parse_date(start_date).strftime("%Y%m%d%H%M%S")
                 if start_date
                 else "20000101000000"
             )
             end = (
-                datetime.strptime(end_date, date_format).strftime("%Y%m%d%H%M%S")
+                _parse_date(end_date).strftime("%Y%m%d%H%M%S")
                 if end_date
                 else datetime.now().strftime("%Y%m%d%H%M%S")
             )
