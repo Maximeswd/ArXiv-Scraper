@@ -1,6 +1,7 @@
 import requests
 import feedparser
 import argparse
+import os
 import pandas as pd
 import re
 import subprocess
@@ -17,6 +18,33 @@ from utils import add_to_table
 console = Console()
 MAIL_FILE = "mail_text.txt"
 SCRIPT_FILE = "fetch_arxiv.scpt"
+DATE_WARNING_FLAG = ".date_format_warning_shown"
+
+
+def _date_format_message(us_dates):
+    """Return the date-format reminder for the selected convention."""
+    if us_dates:
+        return (
+            "[yellow]Note: interpreting dates as US format "
+            "month-day-year (MM-DD-YYYY).[/yellow]"
+        )
+    return (
+        "[yellow]Warning: interpreting dates as European format "
+        "day-month-year (DD-MM-YYYY). Add --us for the US format "
+        "month-day-year (MM-DD-YYYY).[/yellow]"
+    )
+
+
+def _warn_date_format_once(us_dates):
+    """Show the date-format reminder only the first time it is ever used."""
+    if os.path.exists(DATE_WARNING_FLAG):
+        return
+    console.print(_date_format_message(us_dates))
+    try:
+        open(DATE_WARNING_FLAG, "w").close()
+    except OSError:
+        pass
+
 
 def config():
     """Sets up and parses command-line arguments for all modes."""
@@ -47,7 +75,7 @@ def config():
         "--fetch",
         type=int,
         nargs="?",
-        const=1, 
+        const=1,
         help="Used with -m: Fetch the N most recent emails via AppleScript before parsing (Default: 1).",
     )
     parser.add_argument(
@@ -74,67 +102,89 @@ def config():
     parser.add_argument(
         "--start-date",
         type=str,
-        help="(General Mode Only) Start date for search (YYYY-MM-DD).",
+        help="(General Mode Only) Start date for search.\n"
+        "Default format is European: day-month-year (DD-MM-YYYY).\n"
+        "Add --us to use the US format month-day-year (MM-DD-YYYY).",
     )
     parser.add_argument(
         "--end-date",
         type=str,
-        help="(General Mode Only) End date for search (YYYY-MM-DD).",
+        help="(General Mode Only) End date for search.\n"
+        "Default format is European: day-month-year (DD-MM-YYYY).\n"
+        "Add --us to use the US format month-day-year (MM-DD-YYYY).",
+    )
+    parser.add_argument(
+        "--us",
+        action="store_true",
+        help="Interpret --start-date/--end-date as US format month-day-year (MM-DD-YYYY)\n"
+        "instead of the default European day-month-year (DD-MM-YYYY).",
     )
 
     return parser.parse_args()
 
 
-# MODE 1: General API Scraper
+# ─── MODE 1: General API Scraper ─────────────────────────────────────────────
+
+
 def search_general_api(
     categories=None,
     keywords=None,
     authors=None,
     start_date=None,
     end_date=None,
+    us_dates=False,
     max_results=25,
 ):
     base_url = "http://export.arxiv.org/api/query?"
     query_parts = []
     sort_by = "relevance" if keywords else "submittedDate"
-    
+
+    fetch_limit = max_results
+
     if categories:
         cat_query = "+OR+".join([f"cat:{cat}" for cat in categories])
         query_parts.append(f"({cat_query})")
-    
+
     if keywords:
         processed_keywords = [f'"{kw}"' if " " in kw else kw for kw in keywords]
         for kw in processed_keywords:
             query_parts.append(f"(ti:{kw} OR abs:{kw})")
-    
+
     if authors:
         for au in authors:
             query_parts.append(f'au:"{au}"')
-    
+
     if start_date or end_date:
+        date_format = "%m-%d-%Y" if us_dates else "%d-%m-%Y"
         try:
             start = (
-                datetime.strptime(start_date, "%Y-%m-%d").strftime("%Y%m%d%H%M%S")
+                datetime.strptime(start_date, date_format).strftime("%Y%m%d%H%M%S")
                 if start_date
                 else "20000101000000"
             )
             end = (
-                datetime.strptime(end_date, "%Y-%m-%d").strftime("%Y%m%d%H%M%S")
+                datetime.strptime(end_date, date_format).strftime("%Y%m%d%H%M%S")
                 if end_date
                 else datetime.now().strftime("%Y%m%d%H%M%S")
             )
             query_parts.append(f"submittedDate:[{start} TO {end}]")
-        
+
         except ValueError:
+            # Wrong format: always remind the user of the expected convention.
+            console.print(_date_format_message(us_dates))
             return pd.DataFrame()
-    
+
+        # Parsed fine: show the convention only the first time it is ever used.
+        _warn_date_format_once(us_dates)
+
     if not query_parts:
         return pd.DataFrame()
-    
+
     search_query = "+AND+".join(query_parts)
-    full_query = f"{base_url}search_query={search_query}&sortBy={sort_by}&sortOrder=descending&max_results={max_results}"
+    full_query = f"{base_url}search_query={search_query}&sortBy={sort_by}&sortOrder=descending&max_results={fetch_limit}"
     with console.status(
-        f"Searching arXiv database for '[cyan]{search_query}[/cyan]'...", spinner="dots"
+        f"Searching arXiv database for '[cyan]{search_query}[/cyan]'...",
+        spinner="dots",
     ):
         try:
             response = requests.get(full_query)
@@ -147,7 +197,7 @@ def search_general_api(
                 "abstract": [],
                 "url": [],
             }
-            
+
             for entry in feed.entries:
                 results["title"].append(entry.title.replace("\n", " ").strip())
                 results["authors"].append(
@@ -157,15 +207,22 @@ def search_general_api(
                 results["url"].append(entry.link)
                 subjects = ", ".join(tag.term for tag in entry.tags)
                 results["subjects"].append(subjects)
-            
-            return pd.DataFrame(results)
-        
+
+            df = pd.DataFrame(results)
+
+            return df.head(max_results)
+
         except requests.exceptions.RequestException:
             return pd.DataFrame()
 
 
-# MODE 2: Scrape New Papers (daily)
-def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers=10):
+# ─── MODE 2: Scrape New Papers (daily) ───────────────────────────────────────
+
+
+def scrape_daily_papers(
+    categories=None, keywords=None, authors=None,
+    max_papers=10,
+):
     url = "https://arxiv.org/list/cs/new"
     console.print(
         f"[cyan]Scraping daily papers from [link={url}]{url}[/link]...[/cyan]"
@@ -183,11 +240,11 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
             soup = BeautifulSoup(response.content, "html.parser")
             found_papers = []
             articles_dl = soup.find("dl", id="articles")
-            
+
             if not articles_dl:
                 return pd.DataFrame()
             parsing_state = None
-            
+
             for tag in articles_dl.children:
                 if tag.name == "h3":
                     tag_text = tag.get_text()
@@ -199,26 +256,28 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
                         break
                 if (parsing_state in ["new", "cross"]) and (tag.name == "dt"):
                     dd_tag = tag.find_next_sibling("dd")
-                    
+
                     if not dd_tag:
                         continue
-                    
+
                     title_div = dd_tag.find("div", class_="list-title")
                     authors_div = dd_tag.find("div", class_="list-authors")
                     subjects_div = dd_tag.find("div", class_="list-subjects")
                     abstract_p = dd_tag.find("p", class_="mathjax")
                     arxiv_id_link = tag.find("a", title="Abstract")
-                    
-                    if not all([title_div, authors_div, subjects_div, arxiv_id_link]):
+
+                    if not all(
+                        [title_div, authors_div, subjects_div, arxiv_id_link]
+                    ):
                         continue
-                    
+
                     paper_title = title_div.text.replace("Title:", "").strip()
                     paper_authors = authors_div.text.replace("Authors:", "").strip()
                     paper_subjects_str = subjects_div.text.replace(
                         "Subjects:", ""
                     ).strip()
                     paper_abstract = abstract_p.text.strip() if abstract_p else ""
-                    
+
                     if filter_categories and "cs.*" not in filter_categories:
                         paper_subjects = {
                             s.split("(")[-1].replace(")", "").strip().lower()
@@ -226,7 +285,7 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
                         }
                         if not filter_categories.intersection(paper_subjects):
                             continue
-                    
+
                     text_to_search = paper_title + " " + paper_abstract
                     if filter_keywords:
                         keyword_pattern = (
@@ -238,7 +297,7 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
                             keyword_pattern, text_to_search, re.IGNORECASE
                         ):
                             continue
-                    
+
                     if filter_authors and not all(
                         au in paper_authors.lower() for au in filter_authors
                     ):
@@ -252,13 +311,13 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
                         "url": f"http://arxiv.org/abs/{arxiv_id}",
                     }
                     found_papers.append(paper_data)
-            
+
             if not found_papers:
                 return pd.DataFrame()
-            
+
             if filter_keywords:
                 title_weight = 3.0
-                
+
                 for paper in found_papers:
                     keyword_pattern = (
                         r"\b("
@@ -274,30 +333,42 @@ def scrape_daily_papers(categories=None, keywords=None, authors=None, max_papers
                     score = (title_matches * title_weight) + abstract_matches
                     paper["relevance_score"] = score
                 found_papers.sort(key=lambda p: p["relevance_score"], reverse=True)
-            
-            return pd.DataFrame(found_papers[:max_papers])
-        
+
+            df = pd.DataFrame(found_papers[:max_papers])
+
+            return df
+
         except Exception:
             return pd.DataFrame()
 
 
-# MODE 3: Email Parser
-def parse_email_papers(keywords=None, authors=None, max_papers=10, all_papers=False, fetch_count=None):
+# ─── MODE 3: Email Parser ────────────────────────────────────────────────────
+
+
+def parse_email_papers(
+    keywords=None, authors=None,
+    max_papers=10, all_papers=False, fetch_count=None,
+):
     """Parses the mail_text.txt file, omitting subjects."""
     if fetch_count is not None:
-        console.print(f"[cyan]Fetching the last [bold]{fetch_count}[/bold] emails via Mail app...[/cyan]")
+        console.print(
+            f"[cyan]Fetching the last [bold]{fetch_count}[/bold] emails via Mail app...[/cyan]"
+        )
         try:
             result = subprocess.run(
-                ["osascript", SCRIPT_FILE, str(fetch_count)], 
-                capture_output=True, text=True
+                ["osascript", SCRIPT_FILE, str(fetch_count)],
+                capture_output=True,
+                text=True,
             )
             if result.returncode == 0 and "Success" in result.stdout:
                 console.print(f"[green]{result.stdout.strip()}[/green]")
             else:
-                console.print(f"[bold red]AppleScript Error:[/bold red] {result.stderr or result.stdout}")
+                console.print(
+                    f"[bold red]AppleScript Error:[/bold red] {result.stderr or result.stdout}"
+                )
         except Exception as e:
             console.print(f"[bold red]Failed to run AppleScript: {e}[/bold red]")
-    
+
     console.print(
         f"[cyan]Parsing and filtering papers from [bold]{MAIL_FILE}[/bold]...[/cyan]"
     )
@@ -352,10 +423,14 @@ def parse_email_papers(keywords=None, authors=None, max_papers=10, all_papers=Fa
         return df
 
     if keywords:
-        keyword_pattern = r"\b(" + "|".join(re.escape(kw) for kw in keywords) + r")\b"
+        keyword_pattern = (
+            r"\b(" + "|".join(re.escape(kw) for kw in keywords) + r")\b"
+        )
         mask = df.apply(
             lambda row: re.search(
-                keyword_pattern, row["title"] + " " + row["abstract"], re.IGNORECASE
+                keyword_pattern,
+                row["title"] + " " + row["abstract"],
+                re.IGNORECASE,
             )
             is not None,
             axis=1,
@@ -383,7 +458,12 @@ def parse_email_papers(keywords=None, authors=None, max_papers=10, all_papers=Fa
         df = df.sort_values(by="relevance_score", ascending=False)
 
     limit = len(df) if all_papers else max_papers
-    return df.head(limit)
+    df = df.head(limit)
+
+    return df
+
+
+# ─── Main ────────────────────────────────────────────────────────────────────
 
 
 def main():
@@ -407,6 +487,7 @@ def main():
             authors=args.author,
             start_date=args.start_date,
             end_date=args.end_date,
+            us_dates=args.us,
             max_results=(2000 if args.all else args.max),
         )
     elif args.mail:
@@ -416,7 +497,7 @@ def main():
             authors=args.author,
             max_papers=args.max,
             all_papers=args.all,
-            fetch_count=args.fetch 
+            fetch_count=args.fetch,
         )
         show_subjects_in_table = False
 
@@ -433,18 +514,25 @@ def main():
             keywords_to_highlight.extend(name.split())
 
     table = Table(box=box.HORIZONTALS, show_lines=False, show_header=True)
-    table.add_column("Search Terms", max_width=20, style=Style(color="cyan", bold=True))
+    table.add_column(
+        "Search Terms", max_width=20, style=Style(color="cyan", bold=True)
+    )
     table.add_column("Paper Details")
 
     if keywords_to_highlight:
         terms_to_display = (args.keyword or []) + (args.author or [])
         table.add_row(
-            Text(f"Highlighting for:\n{', '.join(terms_to_display)}", style="yellow")
+            Text(
+                f"Highlighting for:\n{', '.join(terms_to_display)}", style="yellow"
+            )
         )
         table.add_section()
 
     table = add_to_table(
-        df, table, keywords_to_highlight, show_subjects=show_subjects_in_table
+        df,
+        table,
+        keywords_to_highlight,
+        show_subjects=show_subjects_in_table,
     )
     console.print(table)
 

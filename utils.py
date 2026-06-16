@@ -75,6 +75,7 @@ def add_to_table(df, table, keywords_to_highlight, show_subjects=True):
 
         table.add_row("", title_text, style=title_style)
         table.add_row("", authors_text, style=author_style)
+
         if show_subjects and "subjects" in row and pd.notna(row["subjects"]):
             subjects_text = Text(row.get("subjects"))
             table.add_row("", subjects_text, style=subject_style)
