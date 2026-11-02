@@ -6,7 +6,7 @@ import pandas as pd
 import re
 import subprocess
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 from rich.console import Console
 from rich.table import Table
 from rich.style import Style
@@ -19,6 +19,24 @@ console = Console()
 MAIL_FILE = "mail_text.txt"
 SCRIPT_FILE = "fetch_arxiv.scpt"
 DATE_WARNING_FLAG = ".date_format_warning_shown"
+
+# ─── MODE 4: Netherlands (OpenAlex) ──────────────────────────────────────────
+# OpenAlex resolves author affiliations, which the arXiv API does not.
+# ROR IDs are the canonical institution identifiers used by OpenAlex.
+NL_INSTITUTIONS = {
+    "uva": ("University of Amsterdam", "https://ror.org/04dkp9463"),
+    "vu": ("Vrije Universiteit Amsterdam", "https://ror.org/008xxew50"),
+    "cwi": ("CWI", "https://ror.org/00x7ekv49"),
+    "amolf": ("AMOLF", "https://ror.org/028rha179"),
+    "tue": ("TU Eindhoven", "https://ror.org/02c2kyt77"),
+    "tudelft": ("TU Delft", "https://ror.org/02e2c7k09"),
+    "utwente": ("University of Twente", "https://ror.org/006hf6230"),
+    "leiden": ("Leiden University", "https://ror.org/027bh9e22"),
+    "utrecht": ("Utrecht University", "https://ror.org/04pp8hn57"),
+    "rug": ("University of Groningen", "https://ror.org/012p63287"),
+    "wur": ("Wageningen University", "https://ror.org/04qw24q55"),
+}
+OPENALEX_MAILTO = os.environ.get("OPENALEX_MAILTO", "")  # optional: faster "polite pool"
 
 
 def _date_format_message(us_dates):
@@ -70,6 +88,25 @@ def config():
         "--mail",
         action="store_true",
         help="Mode 3: Parse and filter the latest arXiv email (macOS).",
+    )
+    mode_group.add_argument(
+        "-nl",
+        "--netherlands",
+        action="store_true",
+        help="Mode 4: Recent papers from Dutch universities via OpenAlex (all fields, not only arXiv).",
+    )
+    parser.add_argument(
+        "--uni",
+        nargs="+",
+        default=["all"],
+        help="Used with -nl: which institutions to include (default: all).\n"
+        "Options: " + ", ".join(NL_INSTITUTIONS.keys()) + ", all",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Used with -nl: look back this many days (default: 7).",
     )
     parser.add_argument(
         "--fetch",
@@ -474,6 +511,139 @@ def parse_email_papers(
     return df
 
 
+# ─── MODE 4: Netherlands via OpenAlex ────────────────────────────────────────
+
+
+def _rebuild_abstract(inverted_index):
+    """OpenAlex stores abstracts as {word: [positions]}; rebuild the text."""
+    if not inverted_index:
+        return ""
+    positions = []
+    for word, idxs in inverted_index.items():
+        for i in idxs:
+            positions.append((i, word))
+    return " ".join(w for _, w in sorted(positions))
+
+
+def search_netherlands(
+    unis=None, days=7, keywords=None, authors=None, max_papers=10, all_papers=False,
+):
+    """Recent works whose authors are affiliated with Dutch institutions.
+
+    Uses OpenAlex instead of arXiv so that affiliations are resolved and
+    non-arXiv fields (chemistry, materials, bio, engineering) are covered.
+    """
+    unis = unis or ["all"]
+    if "all" in unis:
+        selected = list(NL_INSTITUTIONS.keys())
+    else:
+        unknown = [u for u in unis if u not in NL_INSTITUTIONS]
+        if unknown:
+            console.print(
+                f"[bold red]Unknown --uni value(s): {', '.join(unknown)}. "
+                f"Choose from: {', '.join(NL_INSTITUTIONS.keys())}, all[/bold red]"
+            )
+            return pd.DataFrame()
+        selected = unis
+
+    ror_by_key = {k: NL_INSTITUTIONS[k][1] for k in selected}
+    name_by_ror = {v[1]: v[0] for v in NL_INSTITUTIONS.values()}
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    filters = [
+        "authorships.institutions.ror:" + "|".join(ror_by_key.values()),
+        f"from_publication_date:{since}",
+    ]
+    if keywords:
+        # OpenAlex full-text search over title + abstract.
+        filters.append("title_and_abstract.search:" + " ".join(keywords))
+    if authors:
+        filters.append("raw_author_name.search:" + " ".join(authors))
+
+    select = ",".join(
+        [
+            "id",
+            "title",
+            "publication_date",
+            "authorships",
+            "primary_topic",
+            "doi",
+            "primary_location",
+            "abstract_inverted_index",
+        ]
+    )
+    per_page = 200
+    params = {
+        "filter": ",".join(filters),
+        "select": select,
+        "per-page": per_page,
+        "sort": "publication_date:desc",
+        "cursor": "*",
+    }
+    if OPENALEX_MAILTO:
+        params["mailto"] = OPENALEX_MAILTO
+
+    limit = 10_000 if all_papers else max_papers
+    found_papers = []
+
+    uni_label = ", ".join(NL_INSTITUTIONS[k][0] for k in selected)
+    console.print(
+        f"[cyan]Querying OpenAlex for the last {days} days at: {uni_label}[/cyan]"
+    )
+    with console.status("Fetching Dutch papers from OpenAlex...", spinner="dots"):
+        try:
+            while len(found_papers) < limit:
+                response = requests.get(
+                    "https://api.openalex.org/works", params=params, timeout=30
+                )
+                response.raise_for_status()
+                payload = response.json()
+                for w in payload.get("results", []):
+                    nl_affils = set()
+                    author_names = []
+                    for a in w.get("authorships", []):
+                        author_names.append(a.get("author", {}).get("display_name", ""))
+                        for inst in a.get("institutions", []):
+                            if inst.get("ror") in name_by_ror:
+                                nl_affils.add(name_by_ror[inst["ror"]])
+                    topic = (w.get("primary_topic") or {}).get("display_name", "")
+                    field = (
+                        ((w.get("primary_topic") or {}).get("field") or {})
+                        .get("display_name", "")
+                    )
+                    loc = w.get("primary_location") or {}
+                    url = (
+                        w.get("doi")
+                        or loc.get("landing_page_url")
+                        or w.get("id")
+                    )
+                    found_papers.append(
+                        {
+                            "title": (w.get("title") or "").strip(),
+                            "authors": ", ".join(n for n in author_names if n),
+                            "subjects": "; ".join(
+                                s for s in [field, topic, " / ".join(sorted(nl_affils)),
+                                            w.get("publication_date", "")] if s
+                            ),
+                            "abstract": _rebuild_abstract(
+                                w.get("abstract_inverted_index")
+                            ),
+                            "url": url,
+                        }
+                    )
+                    if len(found_papers) >= limit:
+                        break
+                next_cursor = (payload.get("meta") or {}).get("next_cursor")
+                if not next_cursor or not payload.get("results"):
+                    break
+                params["cursor"] = next_cursor
+        except requests.exceptions.RequestException as e:
+            console.print(f"[bold red]OpenAlex request failed: {e}[/bold red]")
+            return pd.DataFrame()
+
+    return pd.DataFrame(found_papers)
+
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 
@@ -511,6 +681,16 @@ def main():
             fetch_count=args.fetch,
         )
         show_subjects_in_table = False
+    elif args.netherlands:
+        console.print("[bold green]Mode: Netherlands (OpenAlex)[/bold green]")
+        df = search_netherlands(
+            unis=args.uni,
+            days=args.days,
+            keywords=args.keyword,
+            authors=args.author,
+            max_papers=args.max,
+            all_papers=args.all,
+        )
 
     if df.empty:
         console.print("[yellow]No matching papers found.[/yellow]")

@@ -5,6 +5,9 @@ arxiv_filter_old.py
 # User-specific data file
 mail_text.txt
 
+# Marker for the one-time date-format warning
+.date_format_warning_shown
+
 # Python virtual environment
 .venv/
 venv/
