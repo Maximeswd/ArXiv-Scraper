@@ -5,6 +5,7 @@ import os
 import pandas as pd
 import re
 import subprocess
+import time
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from rich.console import Console
@@ -163,6 +164,52 @@ def config():
 # ─── MODE 1: General API Scraper ─────────────────────────────────────────────
 
 
+ARXIV_API_RETRIES = 3
+ARXIV_API_BACKOFF = 5  # seconds; doubled after each failed attempt
+
+
+def _arxiv_api_get(url):
+    """GET an arXiv API URL, retrying on 429/503 (throttling / overload).
+
+    Returns the successful Response, or None after printing a clear error that
+    names the HTTP status and the server's message so an outage is never
+    mistaken for an empty search result.
+    """
+    last_error = None
+    for attempt in range(1, ARXIV_API_RETRIES + 1):
+        try:
+            response = requests.get(
+                url, headers={"User-Agent": "ArXiv-Reader-cli"}, timeout=90
+            )
+        except requests.exceptions.RequestException as exc:
+            last_error = f"network error: {exc}"
+            response = None
+        else:
+            if response.status_code == 200:
+                return response
+            body = response.text.strip().replace("\n", " ")[:120]
+            last_error = f"HTTP {response.status_code} from export.arxiv.org: {body!r}"
+            if response.status_code not in (429, 503):
+                break  # not a transient server-side error; don't hammer it
+
+        if attempt < ARXIV_API_RETRIES:
+            wait = ARXIV_API_BACKOFF * 2 ** (attempt - 1)
+            if response is not None and response.headers.get("Retry-After", "").isdigit():
+                wait = max(wait, int(response.headers["Retry-After"]))
+            console.print(
+                f"[yellow]arXiv API attempt {attempt}/{ARXIV_API_RETRIES} failed "
+                f"({last_error}). Retrying in {wait}s...[/yellow]"
+            )
+            time.sleep(wait)
+
+    console.print(
+        f"\n[bold red]arXiv API error:[/bold red] {last_error}\n"
+        "[red]The arXiv API (export.arxiv.org) is rate-limiting or unavailable; "
+        "this is not an empty search result. Try again in a few minutes.[/red]"
+    )
+    return None
+
+
 def search_general_api(
     categories=None,
     keywords=None,
@@ -234,34 +281,31 @@ def search_general_api(
         f"Searching arXiv database for '[cyan]{search_query}[/cyan]'...",
         spinner="dots",
     ):
-        try:
-            response = requests.get(full_query)
-            response.raise_for_status()
-            feed = feedparser.parse(response.content)
-            results = {
-                "title": [],
-                "authors": [],
-                "subjects": [],
-                "abstract": [],
-                "url": [],
-            }
+        response = _arxiv_api_get(full_query)
+        if response is None:
+            return None
+        feed = feedparser.parse(response.content)
+        results = {
+            "title": [],
+            "authors": [],
+            "subjects": [],
+            "abstract": [],
+            "url": [],
+        }
 
-            for entry in feed.entries:
-                results["title"].append(entry.title.replace("\n", " ").strip())
-                results["authors"].append(
-                    ", ".join(author.name for author in entry.authors)
-                )
-                results["abstract"].append(entry.summary.replace("\n", " ").strip())
-                results["url"].append(entry.link)
-                subjects = ", ".join(tag.term for tag in entry.tags)
-                results["subjects"].append(subjects)
+        for entry in feed.entries:
+            results["title"].append(entry.title.replace("\n", " ").strip())
+            results["authors"].append(
+                ", ".join(author.name for author in entry.authors)
+            )
+            results["abstract"].append(entry.summary.replace("\n", " ").strip())
+            results["url"].append(entry.link)
+            subjects = ", ".join(tag.term for tag in entry.tags)
+            results["subjects"].append(subjects)
 
-            df = pd.DataFrame(results)
+        df = pd.DataFrame(results)
 
-            return df.head(max_results)
-
-        except requests.exceptions.RequestException:
-            return pd.DataFrame()
+        return df.head(max_results)
 
 
 # ─── MODE 2: Scrape New Papers (daily) ───────────────────────────────────────
@@ -692,6 +736,8 @@ def main():
             all_papers=args.all,
         )
 
+    if df is None:
+        return  # the API error has already been reported
     if df.empty:
         console.print("[yellow]No matching papers found.[/yellow]")
         return
